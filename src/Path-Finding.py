@@ -36,9 +36,9 @@ class GridEnvironment:
 
     def __post_init__(self):
             self.height = len(self.grid)
-            self.width = len(self.grid[0]) if self.H > 0 else 0
-            self.start_cells = [(x, y) for y in range(self.height) for x in range(self.width) if self.grid[y][x] == "S"]
-            self.target_cell = {(x, y) for y in range(self.height) for x in range(self.width) if self.grid[y][x] == "F"}
+            self.width = len(self.grid[0]) if self.height > 0 else 0
+            self.start_cells = [(x, y) for y in range(self.height) for x in range(self.width) if self.grid[y][x] == "S"] # list
+            self.target_cell = {(x, y) for y in range(self.height) for x in range(self.width) if self.grid[y][x] == "T"} # set
             if not self.start_cells:
                 raise ValueError("No start cells 'S' found")
             if not self.target_cell:
@@ -70,7 +70,7 @@ class GridEnvironment:
         vy2 = clip(vy + ay, -self.v_max, self.v_max)
 
         if vx2 == 0 and vy2 == 0 and not self.is_start(x, y):
-            vx2, vy2 = vx, vy
+            vx2, vy2 = vx, vy # keep previous velocity, v. comps. cannot both be zero except at the starting line
 
         x2 = x + vx2
         y2 = y + vy2
@@ -92,7 +92,7 @@ class GridEnvironment:
 
 
 def main():
-    # Desgin grid structure
+    # Desgin grid structure (#...wall/obstacle, T...target, S...starting line)
     grid = [
         "####################",
         "#.......#..........#",
