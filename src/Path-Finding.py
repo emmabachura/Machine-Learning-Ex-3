@@ -3,6 +3,7 @@ from typing import List, Tuple, Dict
 from dataclasses import dataclass
 from statistics import mean
 import time 
+import argparse
 
 #The action of the robot on the x and y-axis
 Action = Tuple[int, int]  # (ax, ay)
@@ -170,7 +171,7 @@ def generate_episode(env: GridEnvironment, pi, max_steps: int = 3000):
 
     return episode
 
-def mc_control_on_policy_first_visit(env: GridEnvironment,num_episodes: int = 3000, eps: float = 0.1, gamma: float = 0.95, seed: int = 123):
+def mc_control_on_policy_first_visit(env: GridEnvironment,num_episodes: int = 3000, eps: float = 0.1, gamma: float = 0.95, seed: int = 123, max_steps: int = 3000):
     """
     Implements on-policy first-visit MC control with epsilon-soft policies.
     """
@@ -185,7 +186,7 @@ def mc_control_on_policy_first_visit(env: GridEnvironment,num_episodes: int = 30
 
         current_eps = max(0.01, eps * (0.999 ** i))
         # Generate an episode following the current policy
-        episode = generate_episode(env, pi)
+        episode = generate_episode(env, pi, max_steps)
 
         G = 0.0
         visited = set() # to implement first-visit MC
@@ -223,25 +224,28 @@ def greedy_action(Q, s):
         return random.choice(Actions)
     return max(Q[s], key = Q[s].get)
 
-def learned_path(env, Q, max_steps = 2000):
+def learned_path(env, Q, max_steps=3000):
     s = env.reset()
-    cells = [(s[0], s[1])]
+    segments = [[(s[0], s[1])]] 
     end = False
 
     for _ in range(max_steps):
         a = greedy_action(Q, s)
         s2, r, end = env.step(s, a)
 
-        cells.extend(get_path(s[0], s[1], s2[0], s2[1])[1:])
+        if env.is_start(s2[0], s2[1]) and not env.is_start(s[0], s[1]):
+            segments.append([(s2[0], s2[1])])
+        else:
+            path_points = get_path(s[0], s[1], s2[0], s2[1])[1:]
+            segments[-1].extend(path_points)
 
         s = s2
-
         if end:
             break
 
-    return cells, end
+    return segments, end
 
-def plot_grid_path(env, cells=None, title=None, show_legend=True):
+def plot_grid_path(env, segments=None, title=None, show_legend=True):
     fig, ax = plt.subplots(figsize=(8, 6))
 
     for y in range(env.height):
@@ -268,12 +272,22 @@ def plot_grid_path(env, cells=None, title=None, show_legend=True):
                             edgecolor="black", linewidth=6))
 
     # path
-    if cells:
-        xs = [p[0] + 0.5 for p in cells]
-        ys = [p[1] + 0.5 for p in cells]
-        ax.plot(xs, ys, linewidth=3, color="red")
-        ax.scatter([xs[0]], [ys[0]], s=80, marker="o", color="red") # start
-        ax.scatter([xs[-1]], [ys[-1]], s=80, marker="x", color="red") # end
+    if segments:
+        for seg in segments:
+            if len(seg) < 2: continue
+            
+            xs = [p[0] + 0.5 for p in seg]
+            ys = [p[1] + 0.5 for p in seg]
+            
+            
+            ax.plot(xs, ys, linewidth=3, color="red", linestyle="-")
+
+        first_x, first_y = segments[0][0]
+        ax.scatter([first_x + 0.5], [first_y + 0.5], s=80, marker="o", color="red", zorder=5) 
+        
+
+        last_x, last_y = segments[-1][-1]
+        ax.scatter([last_x + 0.5], [last_y + 0.5], s=80, marker="x", color="red", zorder=5)
 
     ax.set_xlim(0, env.width)
     ax.set_ylim(env.height, 0)
@@ -300,104 +314,74 @@ def plot_grid_path(env, cells=None, title=None, show_legend=True):
 
 
 def main():
-    # 1. Define your 3 grid structures
+    parser = argparse.ArgumentParser(description="Monte Carlo RL Grid World Trainer")
+    
+    parser.add_argument("--grid", type=int, default=1, choices=[1, 2, 3],
+                        help="Choose grid: 1 (Simple), 2 (Zig-Zag), 3 (Bottleneck)")
+    parser.add_argument("--episodes", type=int, default=500,
+                        help="Number of training episodes")
+    parser.add_argument("--gamma", type=float, default=0.95,
+                        help="Discount factor (prevents loops)")
+    parser.add_argument("--max_steps", type=int, default=3000, 
+                        help="Maximum steps per episode")
+    parser.add_argument("--epsilon", type=float, default=0.2, 
+                        help="Starting exploration rate")
+    parser.add_argument("--seed", type=int, default=123, 
+                        help="Seed for random number generator to ensure reproducibility")
+    
+
+    args = parser.parse_args()
+
     grid_simple = [
-        "############",
-        "#....#.....#",
-        "#....#.T...#",
-        "#....#.....#",
-        "#....#.....#",
-        "#....###...#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#SSSSSSSSSS#",
-        "############"
+        "############", "#....#.....#", "#....#.....#", "#....#.....#", "#..........#",
+        "#......T...#", "#....#.....#", "#....####..#", "#..........#", "#..........#",
+        "#..........#", "#..........#", "#........###", "#..........#", "#..........#",
+        "#..........#", "#..........#", "#SSSSSSSSSS#", "############"
     ]
 
     grid_medium = [
-        "############",
-        "#T.........#",
-        "#..........#",
-        "######.....#",
-        "#..........#",
-        "#..........#",
-        "#.....######",
-        "#..........#",
-        "#..........#",
-        "######.....#",
-        "#..........#",
-        "#..........#",
-        "#.....######",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#SSSSSSSSSS#",
-        "############"
+        "############", "#T.........#", "#..........#", "######.....#", "#..........#",
+        "#..........#", "#......#####", "#..........#", "#..........#", "######.....#",
+        "#..........#", "#..........#", "#......#####", "#..........#", "#..........#",
+        "#..........#", "#..........#", "#SSSSSSSSSS#", "############"
     ]
 
     grid_complex = [
-        "############",
-        "#....T.....#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "######.#####",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "########.###",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#SSSSSSSSSS#",
-        "############"
-]
+        "############", "#....T.....#", "#..........#", "#..........#", "#..........#",
+        "######.#####", "#..........#", "#..........#", "#..........#", "#..........#",
+        "########.###", "#..........#", "#..........#", "#..........#", "#..........#",
+        "#..........#", "#..........#", "#SSSSSSSSSS#", "############"
+    ]
 
-    print("Select a grid to train:")
-    print("1: Simple L-Obstacle Grid")
-    print("2: Zig-Zag Grid")
-    print("3: Bottleneck Grid")
+    grid_map = {
+        1: (grid_simple, "Simple Grid"),
+        2: (grid_medium, "Zig-Zag Grid"),
+        3: (grid_complex, "Bottleneck Grid")
+    }
     
-    choice = input("Enter choice (1-3): ")
-
-    if choice == "1":
-        selected_grid = grid_simple
-        name = "Simple Grid"
-    elif choice == "2":
-        selected_grid = grid_medium
-        name = "Zig-Zag Grid"
-    elif choice == "3":
-        selected_grid = grid_complex
-        name = "Bottleneck Grid"
-    else:
-        print("Invalid choice.")
-        return
-
+    selected_grid, name = grid_map[args.grid]
 
     print(f"\n--- Training {name} ---")
+    print(f"Parameters: Episodes={args.episodes}, Gamma={args.gamma}, Starting Epsilon={args.epsilon}, Max Steps={args.max_steps} , Seed={args.seed}")
     env = GridEnvironment(selected_grid)
 
     start_time = time.time()
     
-    Q, pi = mc_control_on_policy_first_visit(env, num_episodes=1000, gamma=0.95)
+    Q, pi = mc_control_on_policy_first_visit(
+        env, 
+        num_episodes=args.episodes, 
+        gamma=args.gamma, 
+        eps=args.epsilon,
+        seed=args.seed,
+        max_steps=args.max_steps
+    )
     
     duration = time.time() - start_time
 
     print(f"Training Time: {duration:.2f} seconds")
     print(f"Number of visited states: {len(Q)}")
 
-    cells, end = learned_path(env, Q, max_steps=100)
+    cells, end = learned_path(env, Q, max_steps=args.max_steps)
     plot_grid_path(env, cells, title=f"{name} (Solved: {end})")
 
 if __name__ == "__main__":
